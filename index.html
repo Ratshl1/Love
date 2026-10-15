@@ -6,14 +6,14 @@
 <title>I love u samya</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Pacifico&display=swap" rel="stylesheet">
 <style>
 :root{color-scheme:dark;--bg:#000;--fg:#9cc4ff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#000;--fg:#9cc4ff}}
 :root[data-theme="dark"]{--bg:#000;--fg:#9cc4ff}
 html,body{margin:0;height:100%;background:var(--bg);overflow:hidden}
-canvas{position:fixed;inset:0;width:100%;height:100%;display:block;animation:push 50s ease-out forwards}
-@keyframes push{from{transform:scale(1)}to{transform:scale(1.07)}}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;animation:push 90s ease-out forwards}
+@keyframes push{from{transform:scale(1)}to{transform:scale(1.06)}}
 #vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.8) 100%)}
 #fade{position:fixed;inset:0;background:#000;pointer-events:none;animation:fo 3.5s ease forwards}
 @keyframes fo{to{opacity:0;visibility:hidden}}
@@ -27,20 +27,33 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block;animation:pus
 <div id="fade"></div>
 <button id="re">↻ إعادة المشاهدة</button>
 <script>
-const cv=document.getElementById('c'),ctx=cv.getContext('2d'),btn=document.getElementById('re'),fadeEl=document.getElementById('fade');
-let textCv=null,lineInfo=null;const BT=31;
-const FONT="'Great Vibes','Snell Roundhand','Brush Script MT',cursive";
-const clamp=(v,a=0,b=1)=>Math.min(b,Math.max(a,v)),rnd=(a,b)=>a+Math.random()*(b-a);
-const ease=u=>u<.5?4*u*u*u:1-Math.pow(-2*u+2,3)/2;
-let W,H,dpr,S,fh,cx,baseY,bx,by,T0,bfs=[],sparks=[],dust=[],cache=null,done=false,gen=0,running=false,last=0,endT=0,pts=[],heartPts=[];
+'use strict';
+/* ---------- constants ---------- */
+const FONT="'Pacifico','Brush Script MT','Segoe Script',cursive";
+const FLOWER_ALPHA=.42;   // constant flower brightness
+const FLOWER_END=30;      // seconds (flower timeline) when drawing is complete
+const BT=31;              // butterflies start (global seconds)
+const SPREAD=26;          // seconds over which butterflies leave the flower
+const MAX_BF=560;
 
-/* butterfly sprites: 2 tints x 8 flap frames */
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const btn=document.getElementById('re'),fadeEl=document.getElementById('fade');
+const clamp=(v,a=0,b=1)=>Math.min(b,Math.max(a,v));
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const ease=u=>u<.5?4*u*u*u:1-Math.pow(-2*u+2,3)/2;
+
+let W,H,dpr,S,fh,cx,baseY,bx,by;
+let T0,last=0,gen=0,running=false,done=false,endT=0;
+let flCv,flCtx,flDone=false;
+let bfs=[],sparks=[],dust=[];
+
+/* ---------- butterfly sprites (2 tints x 8 flap frames, glow baked in) ---------- */
 const sprites=[[],[]];
 [['#e3f1ff','#3a78ff','#7db4ff'],['#eefcff','#27b4ff','#8fe3ff']].forEach((tn,ti)=>{
  for(let i=0;i<8;i++){
-  const c=document.createElement('canvas');c.width=c.height=72;const g=c.getContext('2d');
-  const k=Math.abs(Math.cos(i*Math.PI/8))*.8+.2;
-  g.translate(36,36);g.shadowColor=tn[2];g.shadowBlur=10;
+  const c=document.createElement('canvas');c.width=c.height=72;
+  const g=c.getContext('2d'),k=Math.abs(Math.cos(i*Math.PI/8))*.8+.2;
+  g.translate(36,36);g.shadowColor=tn[2];g.shadowBlur=8;
   const gr=g.createLinearGradient(0,0,28,-10);gr.addColorStop(0,tn[0]);gr.addColorStop(1,tn[1]);
   for(const s of[-1,1]){
    g.save();g.scale(s*k,1);g.beginPath();
@@ -48,12 +61,12 @@ const sprites=[[],[]];
    g.moveTo(0,2);g.bezierCurveTo(14,4,26,11,18,22);g.bezierCurveTo(10,28,2,16,0,6);g.closePath();
    g.fillStyle=gr;g.fill();g.lineWidth=1;g.strokeStyle='rgba(225,242,255,.9)';g.stroke();g.restore();
   }
-  g.shadowBlur=4;g.strokeStyle='#fff';g.lineWidth=2;g.beginPath();g.moveTo(0,-9);g.lineTo(0,12);g.stroke();
+  g.shadowBlur=3;g.strokeStyle='#fff';g.lineWidth=2;g.beginPath();g.moveTo(0,-9);g.lineTo(0,12);g.stroke();
   sprites[ti].push(c);
  }
 });
 
-/* lily geometry (unit space: base at 0,0 ; bloom centre at 0,-58) */
+/* ---------- lily geometry (unit space: base 0,0 ; bloom centre 0,-58) ---------- */
 const stemP=new Path2D('M0 0 Q-3 -30 0 -58');
 const petals=[[0,34],[-24,33],[24,33],[-55,38],[55,38],[-85,38],[85,38],[-114,34],[114,34]].map(([a,L])=>{
  const w=L*.4,s=a<0?-1:1,X=v=>v*s;
@@ -62,20 +75,21 @@ const petals=[[0,34],[-24,33],[24,33],[-55,38],[55,38],[-85,38],[85,38],[-114,34
 const leaves=[[-4,-62,30,3],[-4,58,28,4.5],[-14,-38,26,6.3],[-16,36,25,8],[-26,-28,18,9.8]].map(([y,a,L,t])=>({y,a,L,t,
  p:new Path2D(`M0 0 C7 -8 9 -${L*.65} 2 -${L} C-5 -${L*.6} -7 -8 0 0Z`)}));
 
-function dash(c,path,L,p,col,w,blur){
- c.setLineDash([L,L]);c.lineDashOffset=L*(1-p);c.strokeStyle=col;c.lineWidth=w;
- c.shadowColor='rgba(90,150,255,.95)';c.shadowBlur=blur*dpr;c.stroke(path);c.setLineDash([]);
+function dash(c,path,len,p,col,w,blur){
+ c.setLineDash([len,len]);c.lineDashOffset=len*(1-p);c.strokeStyle=col;c.lineWidth=w;
+ c.shadowColor='rgba(90,150,255,.9)';c.shadowBlur=blur*dpr;c.stroke(path);c.setLineDash([]);
 }
+/* draws the flower at full strength into its own layer; the layer is dimmed as a whole */
 function drawFlower(c,t){
  c.save();c.lineJoin='round';c.lineCap='round';
  const sp=clamp((t-.7)/7);
- if(sp>0)dash(c,stemP,80,sp,'rgba(120,160,205,.7)',.8,8);
+ if(sp>0)dash(c,stemP,80,sp,'rgba(150,195,240,.9)',.9,10);
  for(const d of leaves){
   const p=clamp((t-d.t)/4.2);if(p<=0)continue;
-  c.save();c.translate(0,-d.y*-1*-1+d.y*0);c.translate(0,d.y);c.rotate(d.a*Math.PI/180);
+  c.save();c.translate(0,d.y);c.rotate(d.a*Math.PI/180);
   const fa=clamp((p-.6)/.4);
-  if(fa>0){c.globalAlpha=fa*.7;c.fillStyle='rgb(8,30,48)';c.shadowBlur=0;c.fill(d.p);c.globalAlpha=1}
-  dash(c,d.p,d.L*2.4,p,'rgba(95,140,185,.65)',.6,7);
+  if(fa>0){c.globalAlpha=fa*.85;c.shadowBlur=0;c.fillStyle='rgb(8,30,48)';c.fill(d.p);c.globalAlpha=1}
+  dash(c,d.p,d.L*2.4,p,'rgba(110,165,210,.9)',.7,9);
   c.restore();
  }
  petals.forEach((pt,i)=>{
@@ -83,159 +97,162 @@ function drawFlower(c,t){
   c.save();c.translate(0,-58);c.rotate(pt.a*Math.PI/180);
   const fa=clamp((p-.65)/.35);
   if(fa>0){
-   const g=c.createLinearGradient(0,0,0,-pt.L);g.addColorStop(0,'rgba(215,226,250,.82)');g.addColorStop(1,'rgba(110,140,225,.45)');
-   c.globalAlpha=fa*.85;c.shadowColor='rgba(120,170,255,.5)';c.shadowBlur=16*dpr;c.fillStyle=g;c.fill(pt.p);c.globalAlpha=1;
+   const g=c.createLinearGradient(0,0,0,-pt.L);
+   g.addColorStop(0,'rgba(240,244,255,.95)');g.addColorStop(1,'rgba(135,165,255,.6)');
+   c.globalAlpha=fa*.9;c.shadowColor='rgba(120,170,255,.8)';c.shadowBlur=16*dpr;c.fillStyle=g;c.fill(pt.p);c.globalAlpha=1;
   }
-  dash(c,pt.p,pt.L*2.6,p,'rgba(190,208,245,.8)',.6,9);
+  dash(c,pt.p,pt.L*2.6,p,'rgba(215,230,255,.95)',.7,10);
   if(fa>0){c.globalAlpha=fa*.5;c.shadowBlur=0;c.strokeStyle='rgba(255,255,255,.8)';c.lineWidth=.4;c.beginPath();c.moveTo(0,-2);c.lineTo(0,-pt.L*.8);c.stroke()}
   c.restore();
  });
  for(let j=0;j<6;j++){
   const p=clamp((t-(24.5+j*.6))/2.5);if(p<=0)continue;
   const a=(-40+j*16)*Math.PI/180,len=22+(j%2)*4,tx=Math.sin(a)*len*p,ty=-58-Math.cos(a)*len*p;
-  c.shadowColor='rgba(255,220,160,.9)';c.shadowBlur=8*dpr;c.strokeStyle='rgba(255,240,215,.9)';c.lineWidth=.5;
+  c.shadowColor='rgba(255,220,160,.9)';c.shadowBlur=6*dpr;c.strokeStyle='rgba(255,240,215,.9)';c.lineWidth=.5;
   c.beginPath();c.moveTo(0,-58);c.lineTo(tx,ty);c.stroke();
   if(p>.9){c.fillStyle='#ffd9a0';c.beginPath();c.arc(tx,ty,1.1,0,6.3);c.fill()}
  }
  c.restore();
 }
+function renderFlowerLayer(t){
+ flCtx.setTransform(1,0,0,1,0,0);flCtx.clearRect(0,0,flCv.width,flCv.height);
+ flCtx.setTransform(dpr,0,0,dpr,0,0);flCtx.translate(cx,baseY);flCtx.scale(S,S);
+ drawFlower(flCtx,t);
+}
 
+/* ---------- layout ---------- */
 function layout(){
  W=innerWidth;H=innerHeight;dpr=Math.min(2,devicePixelRatio||1);
- cv.width=W*dpr;cv.height=H*dpr;
+ cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
+ flCv=document.createElement('canvas');flCv.width=cv.width;flCv.height=cv.height;flCtx=flCv.getContext('2d');flDone=false;
  const portrait=H>W*1.05;
  fh=portrait?Math.min(H*.37,W*.95):Math.min(H*.5,W*.6);
  S=fh/94;cx=W/2;baseY=H*.97;bx=cx;by=baseY-58*S;
  dust=Array.from({length:70},()=>({x:rnd(0,W),y:rnd(0,H),r:rnd(.6,1.8),sp:rnd(4,16),ph:rnd(0,6.3)}));
 }
 
+/* ---------- text -> butterfly positions (even Poisson-disk sampling of the letter shapes) ---------- */
 function buildTargets(){
- const portrait=H>W*1.05,lines=portrait?['I love u','samya']:['I love u samya'];
- const top=H*.09,bot=portrait?H*.43:H*.33,rh=bot-top;
+ const portrait=H>W*1.05,lines=portrait?['I love u','SAMYA']:['I love u SAMYA'];
+ const top=H*.08,bot=portrait?H*.45:H*.34,rh=bot-top;
  const oc=document.createElement('canvas');oc.width=W;oc.height=H;const o=oc.getContext('2d');
- let fs=Math.min(rh/(lines.length*1.25),240);
+ let fs=Math.min(rh/(lines.length*1.3),230);
  o.font=`${fs}px ${FONT}`;
  const mw=Math.max(...lines.map(l=>o.measureText(l).width));
- if(mw>W*.88)fs*=W*.88/mw;
+ if(mw>W*.9)fs*=W*.9/mw;
  o.font=`${fs}px ${FONT}`;o.textAlign='center';o.textBaseline='middle';o.fillStyle='#fff';
- const lh=fs*1.15,sy=top+rh/2-(lines.length-1)*lh/2;
- o.lineWidth=fs*.05;o.strokeStyle='#fff';o.lineJoin='round';
- lines.forEach((l,i)=>{o.strokeText(l,W/2,sy+i*lh);o.fillText(l,W/2,sy+i*lh)});
- textCv=document.createElement('canvas');textCv.width=cv.width;textCv.height=cv.height;
- const tc=textCv.getContext('2d');tc.setTransform(dpr,0,0,dpr,0,0);tc.font=o.font;tc.textAlign='center';tc.textBaseline='middle';
- tc.shadowColor='rgba(80,150,255,1)';tc.shadowBlur=10*dpr;tc.fillStyle='rgba(215,235,255,1)';
- lines.forEach((l,i)=>tc.fillText(l,W/2,sy+i*lh));
- lineInfo={sy,lh,n:lines.length};
- const data=o.getImageData(0,0,W,H).data;
- let step=Math.max(4.5,fs/22),out;
- for(let k=0;k<12;k++){
-  out=[];
-  for(let y=top-fs*.4;y<bot+fs*.6;y+=step)for(let x=0;x<W;x+=step){
-   const jx=x+rnd(-.2,.2)*step,jy=y+rnd(-.2,.2)*step,ix=Math.round(jx),iy=Math.round(jy);
-   if(ix<0||iy<0||ix>=W||iy>=H)continue;
-   if(data[(iy*W+ix)*4+3]>128)out.push({x:jx,y:jy,l:Math.round((jy-sy)/lh)});
+ const lh=fs*1.25,sy=top+rh/2-(lines.length-1)*lh/2;
+ lines.forEach((l,i)=>o.fillText(l,W/2,sy+i*lh));
+ const img=o.getImageData(0,0,W,H).data;
+ const y0=Math.max(0,Math.floor(top-fs)),y1=Math.min(H-1,Math.ceil(bot+fs));
+ const cand=[];
+ for(let y=y0;y<y1;y+=2)for(let x=0;x<W;x+=2)if(img[(y*W+x)*4+3]>128)cand.push([x,y]);
+ for(let i=cand.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[cand[i],cand[j]]=[cand[j],cand[i]]}
+ let minD=Math.max(4,fs*.07),acc=[];
+ for(let it=0;it<14;it++){
+  acc=[];const cell=minD,grid=new Map();
+  for(const [x,y] of cand){
+   const gx=(x/cell)|0,gy=(y/cell)|0;let ok=true;
+   for(let a=-1;a<=1&&ok;a++)for(let b=-1;b<=1&&ok;b++){
+    const arr=grid.get((gx+a)+','+(gy+b));
+    if(arr)for(const q of arr)if((q[0]-x)**2+(q[1]-y)**2<minD*minD){ok=false;break}
+   }
+   if(ok){acc.push({x,y,l:Math.round((y-sy)/lh)});const k=gx+','+gy;(grid.get(k)||grid.set(k,[]).get(k)).push([x,y])}
   }
-  if(out.length<=520)break;step*=1.12;
+  if(acc.length<=MAX_BF)break;minD*=1.1;
  }
- out.sort((a,b)=>a.l-b.l||a.x-b.x);
- const size=clamp(step*1.5,10,19);
- pts=out.map(p=>({x:p.x,y:p.y,l:p.l,size:size*rnd(.85,1.15)}));
- // heart under the text
- const hy=bot+H*(portrait?.07:.06),hs=Math.min(W,H)*.0042;
- heartPts=[];
+ acc.sort((a,b)=>a.l-b.l||a.x-b.x);
+ const size=clamp(minD*2.5,13,30);
+ const out=acc.map(p=>({x:p.x,y:p.y,size}));
+ // small heart under the text
+ const hy=bot+H*(portrait?.065:.06),hs=Math.min(W,H)*.0042;
  for(let i=0;i<36;i++){
-  const t=Math.PI/2+i/36*Math.PI*2*-1;
-  heartPts.push({x:W/2+16*Math.pow(Math.sin(t),3)*hs,y:hy-(13*Math.cos(t)-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t))*hs,size:13});
+  const t=Math.PI/2-i/36*Math.PI*2;
+  out.push({x:W/2+16*Math.pow(Math.sin(t),3)*hs,y:hy-(13*Math.cos(t)-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t))*hs,size:size*.8});
  }
+ return out;
 }
-function makeButterflies(){
- const all=pts.concat(heartPts),n=all.length;
- bfs=all.map((p,i)=>{
-  const t0=BT+.2+(i/n)*26+rnd(0,.2),dur=rnd(3.6,5.4);
-  return{sx:bx+rnd(-6,6),sy:by+rnd(-6,6),tx:p.x,ty:p.y,
-   c1x:bx+rnd(-1,1)*W*.35,c1y:by-H*rnd(.12,.32),c2x:p.x+rnd(-50,50),c2y:p.y+rnd(40,140),
-   t0,dur,l:p.l,size:p.size,ph:rnd(0,6.3),tint:Math.random()<.7?0:1,fs:rnd(1.2,2.6),landed:false};
- });
+function makeButterflies(targets){
+ const n=targets.length;
+ bfs=targets.map((p,i)=>({
+  sx:bx+rnd(-6,6),sy:by+rnd(-6,6),tx:p.x,ty:p.y,
+  c1x:bx+rnd(-1,1)*W*.35,c1y:by-H*rnd(.12,.32),c2x:p.x+rnd(-50,50),c2y:p.y+rnd(40,140),
+  t0:BT+.2+(i/n)*SPREAD+rnd(0,.2),dur:rnd(3.6,5.4),size:p.size,ph:rnd(0,6.3),
+  tint:Math.random()<.75?0:1,fs:rnd(1.2,2.4),landed:false
+ }));
  endT=Math.max(...bfs.map(b=>b.t0+b.dur))+1;
 }
 function bz(b,e){const m=1-e,a=m*m*m,c=3*m*m*e,d=3*m*e*e,f=e*e*e;
  return[a*b.sx+c*b.c1x+d*b.c2x+f*b.tx,a*b.sy+c*b.c1y+d*b.c2y+f*b.ty]}
 
+/* ---------- main loop ---------- */
 function frame(now){
  const T=(now-T0)/1000,dt=Math.min(.05,(now-last)/1000||.016);last=now;
+ const tf=T-1;
  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.globalCompositeOperation='source-over';ctx.globalAlpha=1;
  ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
- const tf=T-1,fa=1;
+
+ // drifting dust + faint constant bloom haze (additive)
  ctx.globalCompositeOperation='lighter';
- // ambient dust
  const da=clamp((T-3)/6);
- if(da>0)for(const d of dust){
+ for(const d of dust){
   d.y-=d.sp*dt;if(d.y<-5){d.y=H+5;d.x=rnd(0,W)}
-  ctx.fillStyle=`rgba(130,180,255,${da*(.25+.25*Math.sin(T*1.5+d.ph))})`;
+  ctx.fillStyle=`rgba(130,180,255,${da*(.2+.2*Math.sin(T*1.5+d.ph))})`;
   ctx.beginPath();ctx.arc(d.x,d.y,d.r,0,6.3);ctx.fill();
  }
- // bloom glow
- const ga=(.08*clamp((tf-9)/20)+.015*Math.sin(T*1.4))*(tf>9?1:0);
- if(ga>0){
-  const g=ctx.createRadialGradient(bx,by,0,bx,by,fh*.85);
-  g.addColorStop(0,`rgba(90,150,255,${ga*fa+(T>BT?0:0)})`);g.addColorStop(1,'rgba(40,80,255,0)');
-  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
- }
- // flower
+ const hz=ctx.createRadialGradient(bx,by,0,bx,by,fh*.8);
+ hz.addColorStop(0,`rgba(70,120,230,${.05*clamp(tf/4)})`);hz.addColorStop(1,'rgba(40,80,255,0)');
+ ctx.fillStyle=hz;ctx.fillRect(0,0,W,H);
+
+ // flower: always rendered to its own layer, then dimmed once at a constant alpha
  ctx.globalCompositeOperation='source-over';
- if(tf>30&&!cache){
-  cache=document.createElement('canvas');cache.width=cv.width;cache.height=cv.height;
-  const cc=cache.getContext('2d');cc.setTransform(dpr,0,0,dpr,0,0);cc.translate(cx,baseY);cc.scale(S,S);drawFlower(cc,99);
+ if(!flDone&&tf>0){
+  if(tf>=FLOWER_END){renderFlowerLayer(99);flDone=true}else renderFlowerLayer(tf);
  }
- ctx.save();ctx.globalAlpha=fa*.4;
- if(cache){ctx.setTransform(1,0,0,1,0,0);ctx.drawImage(cache,0,0)}
- else if(tf>0){ctx.translate(cx,baseY);ctx.scale(S,S);drawFlower(ctx,tf)}
- ctx.restore();
- // butterflies
- ctx.setTransform(dpr,0,0,dpr,0,0);ctx.globalCompositeOperation='lighter';
- if(textCv&&lineInfo){
-  const mx=[];for(const b of bfs)if(b.landed&&b.l!==undefined&&b.l>=0)mx[b.l]=Math.max(mx[b.l]||0,b.tx);
-  ctx.save();ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=1;
-  mx.forEach((x,l)=>{ctx.save();ctx.beginPath();ctx.rect(0,(lineInfo.sy+(l-.6)*lineInfo.lh)*dpr,(x+14)*dpr,lineInfo.lh*1.2*dpr);ctx.clip();ctx.drawImage(textCv,0,0);ctx.restore()});
-  ctx.restore();
- }
+ ctx.setTransform(1,0,0,1,0,0);ctx.globalAlpha=FLOWER_ALPHA;ctx.drawImage(flCv,0,0);
+ ctx.setTransform(dpr,0,0,dpr,0,0);
+
+ // butterflies: the only thing that forms the sentence
  for(const b of bfs){
   if(T<b.t0)continue;
   const u=(T-b.t0)/b.dur;let x,y,ang,sz,al,fr;
   if(u<1){
    const e=ease(u),p=bz(b,e),p2=bz(b,Math.min(1,e+.02));
-   const wob=Math.sin(T*3+b.ph)*12*u*(1-u)*4;
-   x=p[0]+wob;y=p[1];ang=Math.atan2(p2[1]-p[1],p2[0]-p[0])+Math.PI/2;
+   x=p[0]+Math.sin(T*3+b.ph)*12*u*(1-u)*4;y=p[1];
+   ang=Math.atan2(p2[1]-p[1],p2[0]-p[0])+Math.PI/2;
    sz=b.size*(.3+.7*Math.min(1,u*5));al=Math.min(1,u*6);fr=Math.floor(T*20+b.ph*3)%8;
-   if(Math.random()<.2&&sparks.length<500)sparks.push({x,y,vx:rnd(-8,8),vy:rnd(-8,8),l:0,m:rnd(.6,1.2)});
+   if(Math.random()<.12&&sparks.length<400)sparks.push({x,y,vx:rnd(-8,8),vy:rnd(-8,8),l:0,m:rnd(.6,1.2)});
   }else{
-   if(!b.landed){b.landed=true;for(let k=0;k<4&&sparks.length<500;k++)sparks.push({x:b.tx,y:b.ty,vx:rnd(-25,25),vy:rnd(-25,25),l:0,m:rnd(.8,1.5)})}
-   x=b.tx+Math.sin(T*1.1+b.ph)*.8;y=b.ty+Math.cos(T*.9+b.ph)*.8;
-   ang=Math.sin(T*.7+b.ph)*.12;sz=b.size;al=.55+.2*Math.sin(T*2+b.ph);
-   fr=Math.floor((.5+.5*Math.sin(T*b.fs*2+b.ph))*4);
+   if(!b.landed){b.landed=true;for(let k=0;k<2&&sparks.length<400;k++)sparks.push({x:b.tx,y:b.ty,vx:rnd(-20,20),vy:rnd(-20,20),l:0,m:rnd(.8,1.4)})}
+   x=b.tx+Math.sin(T*1.1+b.ph)*.7;y=b.ty+Math.cos(T*.9+b.ph)*.7;
+   ang=Math.sin(T*.7+b.ph)*.1;sz=b.size;al=.95;
+   fr=Math.floor((.5+.5*Math.sin(T*b.fs*2+b.ph))*3);
   }
   ctx.globalAlpha=al;ctx.save();ctx.translate(x,y);ctx.rotate(ang);
   ctx.drawImage(sprites[b.tint][fr],-sz/2,-sz/2,sz,sz);ctx.restore();
  }
  // sparks
+ ctx.globalCompositeOperation='lighter';
  for(let i=sparks.length-1;i>=0;i--){
   const s=sparks[i];s.l+=dt;if(s.l>s.m){sparks.splice(i,1);continue}
   s.x+=s.vx*dt;s.y+=s.vy*dt;
-  ctx.globalAlpha=1-s.l/s.m;ctx.fillStyle='rgb(160,205,255)';ctx.beginPath();ctx.arc(s.x,s.y,1.3,0,6.3);ctx.fill();
+  ctx.globalAlpha=1-s.l/s.m;ctx.fillStyle='rgb(160,205,255)';ctx.beginPath();ctx.arc(s.x,s.y,1.2,0,6.3);ctx.fill();
  }
- ctx.globalAlpha=1;
+ ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
  if(!done&&endT&&T>endT){done=true;btn.classList.add('on')}
  requestAnimationFrame(frame);
 }
 
+/* ---------- start / replay / resize ---------- */
 function start(){
- gen++;const g=gen;
- layout();bfs=[];sparks=[];cache=null;textCv=null;done=false;endT=0;btn.classList.remove('on');
+ const g=++gen;
+ layout();bfs=[];sparks=[];done=false;endT=0;btn.classList.remove('on');
  fadeEl.style.animation='none';void fadeEl.offsetWidth;fadeEl.style.animation='';
  cv.style.animation='none';void cv.offsetWidth;cv.style.animation='';
  T0=performance.now();last=T0;
- const wait=(document.fonts&&document.fonts.load)?Promise.race([document.fonts.load('120px "Great Vibes"','I love u samya'),new Promise(r=>setTimeout(r,2500))]):Promise.resolve();
- wait.catch(()=>{}).then(()=>{if(g===gen){buildTargets();makeButterflies()}});
+ const fontReady=(document.fonts&&document.fonts.load)
+  ?Promise.race([document.fonts.load('100px "Pacifico"','I love u SAMYA'),new Promise(r=>setTimeout(r,3000))]):Promise.resolve();
+ fontReady.catch(()=>{}).then(()=>{if(g===gen)makeButterflies(buildTargets())});
  if(!running){running=true;requestAnimationFrame(frame)}
 }
 btn.addEventListener('click',start);
