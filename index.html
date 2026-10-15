@@ -25,6 +25,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block;animation:pus
 <canvas id="c"></canvas>
 <div id="vig"></div>
 <div id="fade"></div>
+<audio id="bgm" src="Music.mp3" loop preload="auto" playsinline></audio>
 <button id="re">↻ إعادة المشاهدة</button>
 <script>
 'use strict';
@@ -41,6 +42,17 @@ const btn=document.getElementById('re'),fadeEl=document.getElementById('fade');
 const clamp=(v,a=0,b=1)=>Math.min(b,Math.max(a,v));
 const rnd=(a,b)=>a+Math.random()*(b-a);
 const ease=u=>u<.5?4*u*u*u:1-Math.pow(-2*u+2,3)/2;
+
+/* ---------- background music ---------- */
+const bgm=document.getElementById('bgm');
+bgm.volume=.6;
+function playMusic(){
+ if(!bgm.paused)return;
+ const p=bgm.play();
+ if(p&&p.catch)p.catch(()=>{});
+}
+// fallback: تشغيل الموسيقى عند أول تفاعل من المستخدم (لمتصفحات التي تمنع التشغيل التلقائي)
+['pointerdown','touchstart','keydown','click'].forEach(ev=>addEventListener(ev,playMusic,{passive:true}));
 
 let W,H,dpr,S,fh,cx,baseY,bx,by;
 let T0,last=0,gen=0,running=false,done=false,endT=0;
@@ -133,23 +145,29 @@ function layout(){
 
 /* ---------- text -> butterfly positions (even Poisson-disk sampling of the letter shapes) ---------- */
 function buildTargets(){
- const portrait=H>W*1.05,lines=portrait?['I love u','SAMYA']:['I love u SAMYA'];
+ const portrait=H>W*1.05;
+ // سطر الاسم أكبر ليصبح أوضح
+ const lines=portrait?[{t:'I love u',k:1},{t:'SAMYA',k:1.35}]:[{t:'I love u SAMYA',k:1}];
  const top=H*.08,bot=portrait?H*.45:H*.34,rh=bot-top;
  const oc=document.createElement('canvas');oc.width=W;oc.height=H;const o=oc.getContext('2d');
- let fs=Math.min(rh/(lines.length*1.3),230);
- o.font=`${fs}px ${FONT}`;
- const mw=Math.max(...lines.map(l=>o.measureText(l).width));
- if(mw>W*.9)fs*=W*.9/mw;
- o.font=`${fs}px ${FONT}`;o.textAlign='center';o.textBaseline='middle';o.fillStyle='#fff';
- const lh=fs*1.25,sy=top+rh/2-(lines.length-1)*lh/2;
- lines.forEach((l,i)=>o.fillText(l,W/2,sy+i*lh));
+ const kSum=lines.reduce((s,l)=>s+l.k,0);
+ let fs=Math.min(rh/(kSum*1.25),230);
+ const wOf=(t,k)=>{o.font=`${fs*k}px ${FONT}`;return o.measureText(t).width};
+ let mw=0;for(const l of lines)mw=Math.max(mw,wOf(l.t,l.k));
+ if(mw>W*.88)fs*=W*.88/mw;
+ const lh=lines.map(l=>fs*l.k*1.25);
+ const totalH=lh.reduce((a,b)=>a+b,0);
+ o.textAlign='center';o.textBaseline='middle';o.fillStyle='#fff';
+ let ty=top+rh/2-totalH/2;
+ lines.forEach((l,i)=>{o.font=`${fs*l.k}px ${FONT}`;o.fillText(l.t,W/2,ty+lh[i]/2);ty+=lh[i]});
  const img=o.getImageData(0,0,W,H).data;
  const y0=Math.max(0,Math.floor(top-fs)),y1=Math.min(H-1,Math.ceil(bot+fs));
  const cand=[];
  for(let y=y0;y<y1;y+=2)for(let x=0;x<W;x+=2)if(img[(y*W+x)*4+3]>128)cand.push([x,y]);
  for(let i=cand.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[cand[i],cand[j]]=[cand[j],cand[i]]}
- let minD=Math.max(4,fs*.07),acc=[];
- for(let it=0;it<14;it++){
+ // مسافة أكبر بين الفراشات = تداخل أقل ووضوح أعلى
+ let minD=Math.max(4.5,fs*.08),acc=[];
+ for(let it=0;it<16;it++){
   acc=[];const cell=minD,grid=new Map();
   for(const [x,y] of cand){
    const gx=(x/cell)|0,gy=(y/cell)|0;let ok=true;
@@ -157,15 +175,15 @@ function buildTargets(){
     const arr=grid.get((gx+a)+','+(gy+b));
     if(arr)for(const q of arr)if((q[0]-x)**2+(q[1]-y)**2<minD*minD){ok=false;break}
    }
-   if(ok){acc.push({x,y,l:Math.round((y-sy)/lh)});const k=gx+','+gy;(grid.get(k)||grid.set(k,[]).get(k)).push([x,y])}
+   if(ok){acc.push({x,y});const k=gx+','+gy;(grid.get(k)||grid.set(k,[]).get(k)).push([x,y])}
   }
-  if(acc.length<=MAX_BF)break;minD*=1.1;
+  if(acc.length<=MAX_BF)break;minD*=1.08;
  }
- acc.sort((a,b)=>a.l-b.l||a.x-b.x);
- const size=clamp(minD*2.5,13,30);
+ acc.sort((a,b)=>a.y-b.y||a.x-b.x);
+ const size=clamp(minD*1.5,11,26);
  const out=acc.map(p=>({x:p.x,y:p.y,size}));
  // small heart under the text
- const hy=bot+H*(portrait?.065:.06),hs=Math.min(W,H)*.0042;
+ const hy=bot+H*(portrait?.06:.06),hs=Math.min(W,H)*.0042;
  for(let i=0;i<36;i++){
   const t=Math.PI/2-i/36*Math.PI*2;
   out.push({x:W/2+16*Math.pow(Math.sin(t),3)*hs,y:hy-(13*Math.cos(t)-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t))*hs,size:size*.8});
@@ -250,6 +268,7 @@ function start(){
  fadeEl.style.animation='none';void fadeEl.offsetWidth;fadeEl.style.animation='';
  cv.style.animation='none';void cv.offsetWidth;cv.style.animation='';
  T0=performance.now();last=T0;
+ playMusic();
  const fontReady=(document.fonts&&document.fonts.load)
   ?Promise.race([document.fonts.load('100px "Pacifico"','I love u SAMYA'),new Promise(r=>setTimeout(r,3000))]):Promise.resolve();
  fontReady.catch(()=>{}).then(()=>{if(g===gen)makeButterflies(buildTargets())});
