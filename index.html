@@ -17,8 +17,6 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block;animation:pus
 #vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.8) 100%)}
 #fade{position:fixed;inset:0;background:#000;pointer-events:none;animation:fo 3.5s ease forwards}
 @keyframes fo{to{opacity:0;visibility:hidden}}
-#re{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom,0px));background:rgba(10,20,50,.5);color:var(--fg);border:1px solid rgba(120,170,255,.45);border-radius:999px;padding:10px 22px;font:15px system-ui,sans-serif;opacity:0;pointer-events:none;transition:opacity 1.5s;cursor:pointer;z-index:5}
-#re.on{opacity:1;pointer-events:auto}
 </style>
 </head>
 <body>
@@ -26,7 +24,6 @@ canvas{position:fixed;inset:0;width:100%;height:100%;display:block;animation:pus
 <div id="vig"></div>
 <div id="fade"></div>
 <audio id="bgm" src="Music.mp3" loop preload="auto" playsinline></audio>
-<button id="re">↻ إعادة المشاهدة</button>
 <script>
 'use strict';
 /* ---------- constants ---------- */
@@ -38,7 +35,7 @@ const SPREAD=26;          // seconds over which butterflies leave the flower
 const MAX_BF=560;
 
 const cv=document.getElementById('c'),ctx=cv.getContext('2d');
-const btn=document.getElementById('re'),fadeEl=document.getElementById('fade');
+const fadeEl=document.getElementById('fade');
 const clamp=(v,a=0,b=1)=>Math.min(b,Math.max(a,v));
 const rnd=(a,b)=>a+Math.random()*(b-a);
 const ease=u=>u<.5?4*u*u*u:1-Math.pow(-2*u+2,3)/2;
@@ -51,11 +48,11 @@ function playMusic(){
  const p=bgm.play();
  if(p&&p.catch)p.catch(()=>{});
 }
-// fallback: تشغيل الموسيقى عند أول تفاعل من المستخدم (لمتصفحات التي تمنع التشغيل التلقائي)
+// fallback: تشغيل الموسيقى عند أول تفاعل من المستخدم (للمتصفحات التي تمنع التشغيل التلقائي)
 ['pointerdown','touchstart','keydown','click'].forEach(ev=>addEventListener(ev,playMusic,{passive:true}));
 
 let W,H,dpr,S,fh,cx,baseY,bx,by;
-let T0,last=0,gen=0,running=false,done=false,endT=0;
+let T0,last=0,gen=0,running=false,endT=0;
 let flCv,flCtx,flDone=false;
 let bfs=[],sparks=[],dust=[];
 
@@ -257,14 +254,13 @@ function frame(now){
   ctx.globalAlpha=1-s.l/s.m;ctx.fillStyle='rgb(160,205,255)';ctx.beginPath();ctx.arc(s.x,s.y,1.2,0,6.3);ctx.fill();
  }
  ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';
- if(!done&&endT&&T>endT){done=true;btn.classList.add('on')}
  requestAnimationFrame(frame);
 }
 
-/* ---------- start / replay / resize ---------- */
+/* ---------- start / resize ---------- */
 function start(){
  const g=++gen;
- layout();bfs=[];sparks=[];done=false;endT=0;btn.classList.remove('on');
+ layout();bfs=[];sparks=[];endT=0;
  fadeEl.style.animation='none';void fadeEl.offsetWidth;fadeEl.style.animation='';
  cv.style.animation='none';void cv.offsetWidth;cv.style.animation='';
  T0=performance.now();last=T0;
@@ -274,7 +270,6 @@ function start(){
  fontReady.catch(()=>{}).then(()=>{if(g===gen)makeButterflies(buildTargets())});
  if(!running){running=true;requestAnimationFrame(frame)}
 }
-btn.addEventListener('click',start);
 let lw=innerWidth,lh=innerHeight,rt;
 addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{
  if(Math.abs(innerWidth-lw)>80||(innerWidth>innerHeight)!==(lw>lh)){lw=innerWidth;lh=innerHeight;start()}
