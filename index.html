@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#020307">
+<title>For Samya 💙</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#020307; }
+  body { font-family: Georgia, 'Times New Roman', serif; }
+  canvas { display:block; width:100%; height:100%; }
+  .restart {
+    position:fixed; right:14px; bottom:calc(12px + env(safe-area-inset-bottom));
+    padding:9px 12px; border:1px solid #5caeff55; border-radius:999px;
+    color:#b9ddff; background:#06101bc9; font:12px system-ui,sans-serif;
+    letter-spacing:.04em; opacity:.72; cursor:pointer; backdrop-filter:blur(8px);
+  }
+  .restart:active { transform:scale(.97); }
+  @media (prefers-reduced-motion: reduce) { .restart { opacity:.95; } }
+</style>
+</head>
+<body>
+<canvas id="scene" aria-label="A lily is drawn in glowing lines, blue butterflies fly out and form I love u samya."></canvas>
+<button class="restart" id="replay" type="button">Replay ✦</button>
+<script>
+(() => {
+  const canvas = document.getElementById('scene');
+  const ctx = canvas.getContext('2d');
+  let W=0,H=0,DPR=1,start=performance.now(), raf=0, butterflies=[];
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+  const ease=v=>{v=clamp(v);return v*v*(3-2*v)};
+  const mix=(a,b,t)=>a+(b-a)*t;
+  function resize(){
+    W=innerWidth; H=innerHeight; DPR=Math.min(devicePixelRatio||1,2);
+    canvas.width=Math.round(W*DPR); canvas.height=Math.round(H*DPR);
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+  }
+  addEventListener('resize',resize,{passive:true}); resize();
+
+  // Petal outlines: each is a graceful cubic path from the flower's heart outward and back.
+  // Coordinates are normalized around the flower center; drawing is progressively revealed.
+  const petalDefs = [
+    {p:[ [0,0],[-.07,-.22],[-.30,-.49],[-.18,-.76],[-.12,-.89],[-.015,-.76],[.025,-.49],[0,0] ], delay:.05},
+    {p:[ [0,0],[-.02,-.23],[-.07,-.53],[.08,-.84],[.12,-.92],[.22,-.72],[.14,-.45],[0,0] ], delay:.30},
+    {p:[ [0,0],[.06,-.20],[.20,-.47],[.40,-.60],[.53,-.66],[.51,-.46],[.31,-.30],[0,0] ], delay:.55},
+    {p:[ [0,0],[.10,-.04],[.31,-.18],[.46,-.10],[.55,-.02],[.39,.10],[.18,.08],[0,0] ], delay:.82},
+    {p:[ [0,0],[.07,.10],[.21,.29],[.12,.51],[.06,.62],[-.07,.48],[-.09,.25],[0,0] ], delay:1.08},
+    {p:[ [0,0],[-.10,.08],[-.28,.23],[-.47,.16],[-.54,.10],[-.39,-.02],[-.19,-.04],[0,0] ], delay:1.32},
+    {p:[ [0,0],[-.10,-.08],[-.33,-.20],[-.43,-.40],[-.47,-.52],[-.27,-.49],[-.12,-.29],[0,0] ], delay:1.56}
+  ];
+  // Build each petal as a single cubic path, with a mirrored return curve.
+  function petalPath(def,cx,cy,s){
+    const p=def.p.map(([x,y])=>[cx+x*s,cy+y*s]);
+    const path=new Path2D();
+    path.moveTo(...p[0]);
+    path.bezierCurveTo(...p[1],...p[2],...p[3]);
+    path.bezierCurveTo(...p[4],...p[5],...p[6]);
+    path.quadraticCurveTo(cx,cy,...p[7]);
+    return path;
+  }
+  function tracePath(path, progress, stroke, width, glow=0){
+    // Canvas has no partial Path2D stroke; use a flattened curve sample for reliable hand-drawn reveal.
+    const pts=path.__pts;
+    if(!pts || pts.length<2)return;
+    const n=Math.max(1,Math.floor((pts.length-1)*clamp(progress)));
+    ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round'; ctx.strokeStyle=stroke; ctx.lineWidth=width;
+    if(glow){ctx.shadowColor=stroke;ctx.shadowBlur=glow;}
+    ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);
+    for(let i=1;i<=n;i++)ctx.lineTo(pts[i][0],pts[i][1]);
+    if(progress>=1){for(let i=n+1;i<pts.length;i++)ctx.lineTo(pts[i][0],pts[i][1]);}
+    ctx.stroke();ctx.restore();
+  }
+  function sampleCubic(p0,p1,p2,p3,n=42){
+    const out=[];for(let i=0;i<=n;i++){const t=i/n,u=1-t;out.push([u*u*u*p0[0]+3*u*u*t*p1[0]+3*u*t*t*p2[0]+t*t*t*p3[0],u*u*u*p0[1]+3*u*u*t*p1[1]+3*u*t*t*p2[1]+t*t*t*p3[1]]);}return out;
+  }
+  function makePetal(def,cx,cy,s){
+    const a=def.p.map(([x,y])=>[cx+x*s,cy+y*s]);
+    // Trace the two sides in the same order as a hand-drawn outline.
+    let pts=[];
+    pts=pts.concat(sampleCubic(a[0],a[1],a[2],a[3],38));
+    pts=pts.concat(sampleCubic(a[3],a[4],a[5],a[6],38).slice(1));
+    // Curved closing edge to the center
+    const q=[];for(let i=1;i<=24;i++){let t=i/24,u=1-t;q.push([u*u*a[6][0]+2*u*t*cx+t*t*cx,u*u*a[6][1]+2*u*t*cy+t*t*cy]);}
+    pts=pts.concat(q);
+    return {pts,delay:def.delay};
+  }
+  function strokePoints(pts,progress,color,width,glow=0,fill=false){
+    const count=Math.max(1,Math.floor((pts.length-1)*clamp(progress)));
+    ctx.save();ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);
+    for(let i=1;i<=count;i++)ctx.lineTo(pts[i][0],pts[i][1]);
+    ctx.lineCap='round';ctx.lineJoin='round';ctx.strokeStyle=color;ctx.lineWidth=width;
+    if(glow){ctx.shadowColor=color;ctx.shadowBlur=glow;}
+    ctx.stroke();ctx.restore();
+  }
+  function bezierPoints(p0,p1,p2,p3,n=45){return sampleCubic(p0,p1,p2,p3,n);}
+  function line(points,progress,color,width,glow=0){strokePoints(points,progress,color,width,glow);}
+  function heart(cx,cy,s,progress){
+    const pts=[];for(let i=0;i<=100;i++){const t=(i/100)*Math.PI*2;const x=16*Math.pow(Math.sin(t),3);const y=13*Math.cos(t)-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t);pts.push([cx+x*s/16,cy-y*s/16]);}
+    line(pts,progress,'#56baff',1.2,8);
+  }
+  function drawLily(t){
+    const scale=Math.min(W/390,H/760,1.12);
+    const cx=W/2, cy=H*.315, s=Math.min(W*.62,H*.35)*.94;
+    // Stem and two leaves are drawn first, slowly enough to feel hand-drawn.
+    const stem=bezierPoints([cx,cy+s*.28],[cx-3,cy+s*.53],[cx+4,cy+s*.75],[cx,cy+s*.94],60);
+    line(stem,clamp((t-.05)/.65),'#547c69',1.5,5);
+    const leaves=[
+      bezierPoints([cx,cy+s*.70],[cx-s*.20,cy+s*.55],[cx-s*.42,cy+s*.61],[cx-s*.49,cy+s*.73],42),
+      bezierPoints([cx,cy+s*.82],[cx+s*.20,cy+s*.64],[cx+s*.36,cy+s*.70],[cx+s*.43,cy+s*.82],42)
+    ];
+    leaves.forEach((p,i)=>{let q=clamp((t-.35-i*.16)/.48);line(p,q,'#365c4c',1.5,4);if(q>.96){ctx.save();ctx.globalAlpha=.4;line(p,1,'#8db69a',.55,2);ctx.restore();}});
+
+    const petals=petalDefs.map(d=>makePetal(d,cx,cy,s));
+    petals.forEach((petal,i)=>{
+      const p=clamp((t-petal.delay)/.47);
+      if(p<=0)return;
+      // faint completed silhouette, then a moving luminous pencil-like stroke
+      if(p>.98){
+        ctx.save();ctx.globalAlpha=.12;ctx.fillStyle='#b9d9ff';ctx.shadowColor='#b9d9ff';ctx.shadowBlur=18;
+        ctx.beginPath();ctx.moveTo(petal.pts[0][0],petal.pts[0][1]);petal.pts.forEach(pt=>ctx.lineTo(pt[0],pt[1]));ctx.closePath();ctx.fill();ctx.restore();
+      }
+      line(petal.pts,p,'#d8eaff',1.45,8);
+      line(petal.pts,clamp((p-.15)/.85),'#8cbaff',.55,3);
+      if(p>0&&p<1){const idx=Math.min(petal.pts.length-1,Math.floor(p*(petal.pts.length-1)));const [x,y]=petal.pts[idx];ctx.save();ctx.fillStyle='#ffffff';ctx.shadowColor='#a5d8ff';ctx.shadowBlur=14;ctx.beginPath();ctx.arc(x,y,1.8,0,Math.PI*2);ctx.fill();ctx.restore();}
+    });
+    // Golden stamens appear after the petals have opened.
+    const stamenP=clamp((t-2.0)/.55);
+    const stamenEnds=[[-.07,-.10],[.02,-.15],[.10,-.08],[.15,-.02],[-.12,-.02]];
+    stamenEnds.forEach(([dx,dy],i)=>{
+      const x=cx+dx*s,y=cy+dy*s;
+      const pts=bezierPoints([cx,cy],[cx+dx*s*.25,cy+dy*s*.35],[x-dx*s*.1,y+8],[x,y],22);
+      line(pts,clamp((stamenP-i*.06)*1.3),'#e6d39b',1.05,5);
+      if(stamenP>i*.06){ctx.save();ctx.fillStyle='#ffe8a9';ctx.shadowColor='#ffe4a0';ctx.shadowBlur=8;ctx.beginPath();ctx.arc(x,y,2.1*stamenP,0,Math.PI*2);ctx.fill();ctx.restore();}
+    });
+    // Small drifting sparks around the flower
+    if(t>1.5){for(let i=0;i<20;i++){const phase=(t*.8+i*.31)%1;const a=i*2.399;const r=(12+phase*55)*scale;const x=cx+Math.cos(a+t*.15)*r,y=cy+Math.sin(a)*r*.72;ctx.globalAlpha=(1-phase)*.65;ctx.fillStyle='#9ecfff';ctx.beginPath();ctx.arc(x,y,((i%3)+.6)*.45,0,Math.PI*2);ctx.fill();}ctx.globalAlpha=1;}
+  }
+
+  // Message is built from tiny butterfly-shaped marks placed along the actual letter outlines.
+  // Font outlines are sampled from a hidden canvas, then butterflies fly to those exact positions.
+  const off=document.createElement('canvas');const octx=off.getContext('2d');
+  let targets=[],targetReady=false;
+  function buildTargets(){
+    off.width=Math.max(1,Math.floor(W));off.height=Math.max(1,Math.floor(H));
+    octx.clearRect(0,0,off.width,off.height);
+    const fontSize=Math.min(W*.105, H*.072, 43);
+    octx.font=`italic 600 ${fontSize}px Georgia, 'Times New Roman', serif`;
+    octx.textAlign='center';octx.textBaseline='middle';
+    const text='I love u samya';
+    // Keep the complete exact phrase on one line on phones, with safe side margins.
+    let size=fontSize;while(octx.measureText(text).width>W*.92&&size>15){size-=1;octx.font=`italic 600 ${size}px Georgia, 'Times New Roman', serif`;}
+    const ty=H*.79;
+    octx.fillStyle='#fff';octx.fillText(text,W/2,ty);
+    const data=octx.getImageData(0,0,off.width,off.height).data;
+    const gap=W<430?3:3.4;targets=[];
+    // Sample only glyph edges/ink to create legible, crisp butterfly lettering.
+    for(let y=Math.floor(ty-size);y<ty+size;y+=gap){for(let x=0;x<W;x+=gap){const idx=(Math.floor(y)*off.width+Math.floor(x))*4+3;if(data[idx]>80){targets.push({x:x+(Math.random()-.5)*1.2,y:y+(Math.random()-.5)*1.2});}}}
+    // Thin overly dense glyph sampling to keep movement fluid.
+    const max= Math.min(460, Math.floor(W*1.12));
+    if(targets.length>max){const reduced=[];const step=targets.length/max;for(let i=0;i<max;i++)reduced.push(targets[Math.floor(i*step)]);targets=reduced;}
+    targetReady=true;
+  }
+  function reset(){start=performance.now();butterflies=[];targetReady=false;buildTargets();cancelAnimationFrame(raf);raf=requestAnimationFrame(frame);}
+  document.getElementById('replay').addEventListener('click',reset);
+  function drawButterfly(x,y,size,angle,alpha,blue='#3aaaff'){
+    ctx.save();ctx.translate(x,y);ctx.rotate(angle);ctx.globalAlpha=alpha;ctx.shadowColor=blue;ctx.shadowBlur=9;
+    ctx.fillStyle=blue;
+    // Four wing lobes plus a slender body; silhouette reads as a butterfly at tiny sizes.
+    ctx.beginPath();ctx.ellipse(-size*.32,-size*.22,size*.31,size*.23,-.48,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.ellipse(size*.32,-size*.22,size*.31,size*.23,.48,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.ellipse(-size*.27,size*.18,size*.23,size*.16,.45,0,Math.PI*2);ctx.fill();
+    ctx.beginPath();ctx.ellipse(size*.27,size*.18,size*.23,size*.16,-.45,0,Math.PI*2);ctx.fill();
+    ctx.shadowBlur=3;ctx.fillStyle='#d8f4ff';ctx.fillRect(-.45*size,-.28*size,.9*size,.12*size);
+    ctx.restore();
+  }
+  function drawButterflyFlight(t){
+    const cx=W/2, cy=H*.315;
+    const progress=clamp((t-2.85)/1.8);
+    if(progress<=0)return;
+    const count=reduceMotion?20:44;
+    for(let i=0;i<count;i++){
+      const seed=i*12.9898;
+      const delay=(i/count)*.75;
+      const p=clamp((progress-delay)/.75);
+      if(p<=0)continue;
+      const drift=(1-p);
+      const angle=i*2.4+t*(.9+(i%4)*.08);
+      const x=cx+Math.cos(angle)*(.02*W+drift*W*.23)+Math.sin(t*2+i)*W*.025;
+      const y=cy+H*.12+p*H*.25+Math.sin(angle*1.4)*H*.06;
+      drawButterfly(x,y,2.2+(i%4)*.6,Math.sin(t*3+i)*.55,Math.min(1,p*2));
+    }
+  }
+  function drawMessage(t){
+    if(!targetReady||t<4.3)return;
+    const appear=clamp((t-4.3)/2.5);
+    // Each butterfly starts at the flower and travels to a point on the text's letter shapes.
+    if(!butterflies.length){
+      butterflies=targets.map((target,i)=>({target,delay:(i/Math.max(1,targets.length-1))*2.0,seed:i*7.13}));
+    }
+    butterflies.forEach((b,i)=>{
+      const local=clamp((t-4.3-b.delay)/1.35);
+      const p=ease(local);
+      const startX=W/2+Math.sin(b.seed)*W*.045;
+      const startY=H*.31+Math.cos(b.seed*1.7)*H*.045;
+      const arc=Math.sin(Math.PI*p)*Math.sin(b.seed)*H*.10;
+      const x=mix(startX,b.target.x,p)+Math.sin(p*8+b.seed)*4*(1-p);
+      const y=mix(startY,b.target.y,p)-arc;
+      const twinkle=.78+.22*Math.sin(t*5+b.seed);
+      drawButterfly(x,y,Math.max(1.25,Math.min(3.0,W/180)),Math.sin(t*2+b.seed)*.18,Math.min(1,local*2)*twinkle,'#42aaff');
+    });
+    // A delicate underline and heart flourish are drawn after the letters settle.
+    if(t>7.0){
+      const p=clamp((t-7)/1.0);const y=H*.855;
+      const pts=bezierPoints([W*.20,y],[W*.34,y+H*.025],[W*.66,y+H*.025],[W*.80,y],70);
+      line(pts,p,'#2588f5',.8,7);
+      heart(W/2,H*.864,Math.min(W*.035,14),clamp((t-7.5)/.9));
+    }
+  }
+  function frame(now){
+    const t=reduceMotion?Math.min(12,(now-start)/1000):((now-start)/1000);
+    ctx.clearRect(0,0,W,H);
+    // Black background with a subtle blue atmospheric halo behind the lily.
+    const halo=ctx.createRadialGradient(W/2,H*.34,0,W/2,H*.34,Math.max(W,H)*.48);
+    halo.addColorStop(0,'rgba(15,35,67,.22)');halo.addColorStop(.55,'rgba(5,12,27,.10)');halo.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle='#020307';ctx.fillRect(0,0,W,H);ctx.fillStyle=halo;ctx.fillRect(0,0,W,H);
+    drawLily(t);
+    drawButterflyFlight(t);
+    drawMessage(t);
+    // Low, restrained blue reflection beneath the final message.
+    if(t>6.5){
+      const p=clamp((t-6.5)/1.4);ctx.save();ctx.globalAlpha=.14*p;
+      const grad=ctx.createLinearGradient(0,H*.88,0,H);grad.addColorStop(0,'rgba(33,124,255,.45)');grad.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=grad;ctx.fillRect(0,H*.88,W,H*.12);ctx.restore();
+    }
+    raf=requestAnimationFrame(frame);
+  }
+  reset();
+})();
+</script>
+</body>
+</html>
