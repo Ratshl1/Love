@@ -48,7 +48,6 @@ function playMusic(){
  const p=bgm.play();
  if(p&&p.catch)p.catch(()=>{});
 }
-// fallback: تشغيل الموسيقى عند أول تفاعل من المستخدم (للمتصفحات التي تمنع التشغيل التلقائي)
 ['pointerdown','touchstart','keydown','click'].forEach(ev=>addEventListener(ev,playMusic,{passive:true}));
 
 let W,H,dpr,S,fh,cx,baseY,bx,by;
@@ -94,17 +93,17 @@ function drawFlower(c,t){
  const sp=clamp((t-.7)/7);
  if(sp>0)dash(c,stemP,80,sp,'rgba(150,195,240,.9)',.9,10);
  for(const d of leaves){
-  const p=clamp((t-d.t)/4.2);if(p<=0)continue;
+  const p=clamp((t-d.t)/3.6);if(p<=0)continue;   // ← أسرع من السابق (كان 4.2)
   c.save();c.translate(0,d.y);c.rotate(d.a*Math.PI/180);
-  const fa=clamp((p-.6)/.4);
+  const fa=clamp((p-.25)/.35);                    // ← التعبئة تبدأ مع الخط تقريباً (كانت .6)
   if(fa>0){c.globalAlpha=fa*.85;c.shadowBlur=0;c.fillStyle='rgb(8,30,48)';c.fill(d.p);c.globalAlpha=1}
   dash(c,d.p,d.L*2.4,p,'rgba(110,165,210,.9)',.7,9);
   c.restore();
  }
  petals.forEach((pt,i)=>{
-  const p=clamp((t-(9+i*1.6))/4.2);if(p<=0)return;
+  const p=clamp((t-(9+i*1.6))/3.6);if(p<=0)return;  // ← أسرع من السابق (كان 4.2)
   c.save();c.translate(0,-58);c.rotate(pt.a*Math.PI/180);
-  const fa=clamp((p-.65)/.35);
+  const fa=clamp((p-.25)/.35);                       // ← التعبئة تبدأ مع الخط تقريباً (كانت .65)
   if(fa>0){
    const g=c.createLinearGradient(0,0,0,-pt.L);
    g.addColorStop(0,'rgba(240,244,255,.95)');g.addColorStop(1,'rgba(135,165,255,.6)');
